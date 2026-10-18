@@ -67,10 +67,11 @@ open build/Tubes.app
 
 ## How it works
 
-| Piece | File |
+| Piece | Where |
 | --- | --- |
-| Feed polling, alert de-duplication, menu bar label | [`Sources/TubesApp.swift`](Sources/TubesApp.swift) |
-| 5×7 LED font, frame buffer, LED renderer, casing texture | [`Sources/DotMatrix.swift`](Sources/DotMatrix.swift) |
+| Feed models and fetching, alert de-duplication, stations (Foundation only) | [`Sources/TubesFeed`](Sources/TubesFeed) |
+| 5×7 LED font, LED renderer, board layout, polling store | [`Sources/TubesUI`](Sources/TubesUI) |
+| Mac app: floating window, menu bar, settings | [`Sources/TubesMac`](Sources/TubesMac) |
 
 **Data sources** (both public endpoints used by panynj.gov):
 

@@ -1,10 +1,10 @@
 import SwiftUI
-import AppKit
+import CoreGraphics
 
 // MARK: - 5x7 LED font (classic HD44780-style). Each glyph: 7 rows, bit 4 = leftmost.
 
-enum DotFont {
-    static let glyphs: [Character: [UInt8]] = [
+public enum DotFont {
+    public static let glyphs: [Character: [UInt8]] = [
         "A": [0x0E, 0x11, 0x11, 0x11, 0x1F, 0x11, 0x11],
         "B": [0x1E, 0x11, 0x11, 0x1E, 0x11, 0x11, 0x1E],
         "C": [0x0E, 0x11, 0x10, 0x10, 0x10, 0x11, 0x0E],
@@ -71,7 +71,7 @@ enum DotFont {
         "’": "'", "‘": "'", "“": "\"", "”": "\"", "–": "-", "—": "-", "…": ".",
     ]
 
-    static func normalize(_ s: String) -> [Character] {
+    public static func normalize(_ s: String) -> [Character] {
         s.uppercased().compactMap { ch in
             let c = replacements[ch] ?? ch
             if glyphs[c] != nil { return c }
@@ -80,7 +80,7 @@ enum DotFont {
     }
 
     /// Column bitmasks (bit 0 = top row) for a string; 5 columns per glyph + 1 spacing column.
-    static func columns(_ s: String) -> [UInt8] {
+    public static func columns(_ s: String) -> [UInt8] {
         var out: [UInt8] = []
         for ch in normalize(s) {
             let g = glyphs[ch]!
@@ -95,41 +95,41 @@ enum DotFont {
         return out
     }
 
-    static func width(_ s: String) -> Int { max(0, normalize(s).count * 6 - 1) }
+    public static func width(_ s: String) -> Int { max(0, normalize(s).count * 6 - 1) }
 }
 
 // MARK: - Frame buffer
 
 /// A grid of LEDs; each cell holds a palette index (0 = off).
-struct LEDFrame {
-    let cols: Int
-    let rows: Int
-    var px: [UInt8]
+public struct LEDFrame: Sendable {
+    public let cols: Int
+    public let rows: Int
+    public var px: [UInt8]
 
-    init(cols: Int, rows: Int) {
+    public init(cols: Int, rows: Int) {
         self.cols = cols
         self.rows = rows
         px = Array(repeating: 0, count: cols * rows)
     }
 
-    mutating func set(_ x: Int, _ y: Int, _ c: UInt8) {
+    public mutating func set(_ x: Int, _ y: Int, _ c: UInt8) {
         guard x >= 0, x < cols, y >= 0, y < rows else { return }
         px[y * cols + x] = c
     }
 
-    mutating func blit(_ columns: [UInt8], x: Int, y: Int, color: UInt8) {
+    public mutating func blit(_ columns: [UInt8], x: Int, y: Int, color: UInt8) {
         for (i, m) in columns.enumerated() where m != 0 {
             for r in 0..<7 where m & (1 << r) != 0 { set(x + i, y + r, color) }
         }
     }
 
-    mutating func text(_ s: String, x: Int, y: Int, color: UInt8, rightAligned: Bool = false) {
+    public mutating func text(_ s: String, x: Int, y: Int, color: UInt8, rightAligned: Bool = false) {
         let cols = DotFont.columns(s)
         blit(cols, x: rightAligned ? x - cols.count : x, y: y, color: color)
     }
 
     /// Round "bullet" in one or two line colours, like the route markers on the map.
-    mutating func lineMarker(x: Int, y: Int, colors: [UInt8]) {
+    public mutating func lineMarker(x: Int, y: Int, colors: [UInt8]) {
         let g: [UInt8] = [0x0E, 0x1F, 0x1F, 0x1F, 0x1F, 0x1F, 0x0E]
         for c in 0..<5 {
             for r in 0..<7 where g[r] & (0x10 >> c) != 0 {
@@ -143,15 +143,21 @@ struct LEDFrame {
 
 // MARK: - Rendering
 
-let ledAmber = Color(red: 1.0, green: 0.62, blue: 0.08)
+public let ledAmber = Color(red: 1.0, green: 0.62, blue: 0.08)
 
 /// Draws a frame as physical LEDs: dim unlit dots, slightly uneven lit dots, and a soft bloom.
-struct LEDCanvas: View {
+public struct LEDCanvas: View {
     let frame: LEDFrame
     let palette: [Color]   // index 0 unused
     var pitch: CGFloat = 2.6
 
-    var body: some View {
+    public init(frame: LEDFrame, palette: [Color], pitch: CGFloat = 2.6) {
+        self.frame = frame
+        self.palette = palette
+        self.pitch = pitch
+    }
+
+    public var body: some View {
         Canvas(rendersAsynchronously: false) { ctx, _ in
             let d = pitch * 0.74
             let inset = (pitch - d) / 2
@@ -190,11 +196,18 @@ struct LEDCanvas: View {
 }
 
 /// The black module behind the LEDs, with a faint glass sheen and grain.
-struct LEDModule<Content: View>: View {
+public struct LEDModule<Content: View>: View {
     @ViewBuilder var content: Content
-    var body: some View {
+    var inset: CGFloat = 5.4
+
+    public init(inset: CGFloat = 5.4, @ViewBuilder content: () -> Content) {
+        self.inset = inset
+        self.content = content()
+    }
+
+    public var body: some View {
         content
-            .padding(5.4)
+            .padding(inset)
             .background(Color(red: 0.03, green: 0.025, blue: 0.02))
             .overlay(Noise.image.resizable(resizingMode: .tile).opacity(0.07).blendMode(.screen).allowsHitTesting(false))
             .overlay(
@@ -207,8 +220,8 @@ struct LEDModule<Content: View>: View {
     }
 }
 
-enum Noise {
-    static let image: Image = {
+public enum Noise {
+    public static let image: Image = {
         let n = 96
         var bytes = [UInt8](repeating: 0, count: n * n * 4)
         var seed: UInt64 = 0x9E3779B97F4A7C15

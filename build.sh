@@ -8,13 +8,10 @@ cd "$(dirname "$0")"
 VERSION=1.0.0
 APP=build/Tubes.app
 rm -rf "$APP"
-mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources" build/obj
+mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
 
-for ARCH in arm64 x86_64; do
-  swiftc -O -parse-as-library -target $ARCH-apple-macos15 \
-    Sources/*.swift -o build/obj/Tubes-$ARCH
-done
-lipo -create build/obj/Tubes-arm64 build/obj/Tubes-x86_64 -output "$APP/Contents/MacOS/Tubes"
+swift build -c release --product TubesMac --arch arm64 --arch x86_64
+cp "$(swift build -c release --product TubesMac --arch arm64 --arch x86_64 --show-bin-path)/TubesMac" "$APP/Contents/MacOS/Tubes"
 
 [[ -f assets/AppIcon.icns ]] && cp assets/AppIcon.icns "$APP/Contents/Resources/"
 
