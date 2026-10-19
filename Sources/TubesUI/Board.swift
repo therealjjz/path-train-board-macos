@@ -14,6 +14,19 @@ extension Color {
 
 /// Platform-sign layout. 210 LED columns fits "JOURNAL SQUARE VIA HOBOKEN  45 MIN".
 public let boardCols = 210
+/// Narrower layout for phones: bigger LEDs, with sign-style abbreviations so names fit.
+public let compactBoardCols = 140
+
+/// Abbreviations as used on PATH signage, for the compact board.
+public func abbreviatedSignText(_ s: String) -> String {
+    var t = s.uppercased()
+    for (long, short) in [("WORLD TRADE CENTER", "WORLD TRADE CTR"), ("JOURNAL SQUARE", "JOURNAL SQ"),
+                          ("EXCHANGE PLACE", "EXCHANGE PL"), ("VIA HOBOKEN", "VIA HOB"),
+                          ("STREET", "ST")] {
+        t = t.replacingOccurrences(of: long, with: short)
+    }
+    return t
+}
 public let maxTrainsPerDirection = 3
 
 /// A train line on the board, so taps can be mapped back to the train.
@@ -35,6 +48,7 @@ public let boardRows = 7 + 2 * (13 + 9 * maxTrainsPerDirection)
 
 /// `highlight` draws the matching train with a bracket, used while it is being tracked.
 public func makeBoard(station: String, dests: [Destination], loaded: Bool, now: Date,
+                      cols boardCols: Int = boardCols,
                       highlight: ((String, Message) -> Bool)? = nil) -> BoardFrame {
     var palette: [Color] = [.clear, ledAmber, ledAmber.opacity(0.55)]
     var lineIndex: [String: UInt8] = [:]
@@ -52,7 +66,8 @@ public func makeBoard(station: String, dests: [Destination], loaded: Bool, now: 
     let clock = DateFormatter()
     clock.timeZone = TimeZone(identifier: "America/New_York")
     clock.dateFormat = "h:mm a"
-    f.text(stationName(station), x: 0, y: 0, color: 1)
+    let short = boardCols < 200
+    f.text(short ? abbreviatedSignText(stationName(station)) : stationName(station), x: 0, y: 0, color: 1)
     f.text(clock.string(from: now), x: boardCols, y: 0, color: 1, rightAligned: true)
 
     var y = 7
@@ -78,7 +93,7 @@ public func makeBoard(station: String, dests: [Destination], loaded: Bool, now: 
             f.lineMarker(x: 0, y: y, colors: m.hexColors.map(colorIndex))
             let time = m.arrivalTimeMessage
             let timeW = DotFont.width(time)
-            var sign = m.headSign
+            var sign = short ? abbreviatedSignText(m.headSign) : m.headSign
             while DotFont.width(sign) > boardCols - 8 - timeW - 6 && !sign.isEmpty { sign.removeLast() }
             f.text(sign, x: 8, y: y, color: 1)
             f.text(time, x: boardCols, y: y, color: 1, rightAligned: true)
@@ -199,11 +214,13 @@ public struct LineDot: View {
 
 // MARK: - Store
 
-/// Polls the departures feed (8 s) and alerts (60 s) while alive.
+/// Polls the departures feed (8 s) and alerts (5 min) while alive.
 @MainActor
 public final class BoardStore: ObservableObject {
     @Published public private(set) var departures: Departures?
-    @Published public private(set) var alerts: [String] = []
+    @Published public private(set) var serviceAlerts: [ServiceAlert] = []
+    @Published public private(set) var alertsFetchedAt: Date?
+    public var alerts: [String] { serviceAlerts.map(\.message) }
     @Published public private(set) var error: String?
 
     public var fetchedAt: Date? { departures?.fetchedAt }
@@ -225,7 +242,8 @@ public final class BoardStore: ObservableObject {
         timers.append(Timer.scheduledTimer(withTimeInterval: 8, repeats: true) { [weak self] _ in
             Task { await self?.refresh() }
         })
-        timers.append(Timer.scheduledTimer(withTimeInterval: 60, repeats: true) { [weak self] _ in
+        // The 30-day alert history is ~400 KB and changes rarely.
+        timers.append(Timer.scheduledTimer(withTimeInterval: 300, repeats: true) { [weak self] _ in
             Task { await self?.refreshAlerts() }
         })
     }
@@ -245,7 +263,10 @@ public final class BoardStore: ObservableObject {
     }
 
     public func refreshAlerts() async {
-        if let a = try? await FeedClient.alerts() { alerts = a }
+        if let a = try? await FeedClient.serviceAlerts() {
+            serviceAlerts = a
+            alertsFetchedAt = Date()
+        }
     }
 
     public func destinations(_ code: String) -> [Destination] {

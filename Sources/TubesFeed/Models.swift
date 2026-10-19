@@ -5,7 +5,9 @@ import Foundation
 // data behind the platform signs / RidePATH app, alerts is the PATHAlert feed.
 
 public let feedURL = URL(string: "https://www.panynj.gov/bin/portauthority/ridepath.json")!
-public let alertsURL = URL(string: "https://www.panynj.gov/bin/portauthority/alerts?agency=PATH&hours=8")!
+// 30 days back: long-running incidents (elevator outages, multi-week advisories) stay
+// "open" well past the 8 hours panynj.gov's own page asks for.
+public let alertsURL = URL(string: "https://www.panynj.gov/bin/portauthority/alerts?agency=PATH&hours=720")!
 
 public struct Feed: Decodable {
     public let results: [StationResult]
@@ -82,19 +84,53 @@ public struct Alert: Decodable {
     }
 }
 
+/// An open PATHAlert incident, as shown on panynj.gov.
+public struct ServiceAlert: Identifiable, Hashable, Sendable {
+    public let id: String
+    public let subject: String
+    public let message: String
+    public let sentAt: Date?
+
+    /// Elevator / escalator outages, listed separately from train service changes.
+    public var isAccessibility: Bool {
+        let text = (subject + " " + message).lowercased()
+        return text.contains("elevator") || text.contains("escalator")
+    }
+
+    /// Whether the alert names this station: its full name ("Journal Square") or its code
+    /// on its own ("JSQ elevator"), but not a line name like "JSQ-33".
+    public func mentions(_ station: Station) -> Bool {
+        let text = (subject + " " + message).lowercased()
+        if text.contains(station.name.lowercased()) { return true }
+        let code = NSRegularExpression.escapedPattern(for: station.code.lowercased())
+        return text.range(of: "(?<![-\\w])\(code)(?![-\\w])", options: .regularExpression) != nil
+    }
+}
+
 /// Same rule as panynj.gov: one alert per Everbridge incident, latest message wins;
 /// only incidents still open are shown, newest first.
-public func openAlertMessages(_ list: [Alert]) -> [String] {
+public func openServiceAlerts(_ list: [Alert]) -> [ServiceAlert] {
     var latest: [String: Alert] = [:]
     for a in list {
         let key = a.ebid.map { "eb\($0)" } ?? "m\(a.messageid ?? 0)"
         if let cur = latest[key], cur.sentMillis > a.sentMillis { continue }
         latest[key] = a
     }
-    return latest.values
-        .filter { $0.state?.lowercased() == "open" }
-        .sorted { $0.sentMillis > $1.sentMillis }
-        .compactMap { $0.SentMessage ?? $0.Subject }
+    return latest
+        .filter { $0.value.state?.lowercased() == "open" }
+        .sorted { $0.value.sentMillis > $1.value.sentMillis }
+        .compactMap { key, a in
+            guard let text = a.SentMessage ?? a.Subject else { return nil }
+            return ServiceAlert(
+                id: key,
+                subject: (a.Subject ?? "").trimmingCharacters(in: .whitespacesAndNewlines),
+                message: text.trimmingCharacters(in: .whitespacesAndNewlines),
+                sentAt: a.sentMillis > 0 ? Date(timeIntervalSince1970: Double(a.sentMillis) / 1000) : nil)
+        }
+}
+
+public func openAlertMessages(_ list: [Alert]) -> [String] {
+    openServiceAlerts(list).map(\.message)
 }
 
 // MARK: - Stations

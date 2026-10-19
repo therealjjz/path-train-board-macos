@@ -38,7 +38,11 @@ public enum FeedClient {
             fetchedAt: Date())
     }
 
+    public static func serviceAlerts() async throws -> [ServiceAlert] {
+        openServiceAlerts(try JSONDecoder().decode([Alert].self, from: try await get(alertsURL)))
+    }
+
     public static func alerts() async throws -> [String] {
-        openAlertMessages(try JSONDecoder().decode([Alert].self, from: try await get(alertsURL)))
+        try await serviceAlerts().map(\.message)
     }
 }
